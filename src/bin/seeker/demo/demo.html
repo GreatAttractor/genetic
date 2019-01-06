@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+</head>
+<body>
+<h2>Genetic programming experiments &ndash; Seeker</h2>
+<p>Click on the canvas below to set the start and end location. Then click "Run" to run the genetic program. Click "Reset" to start again.</p>
+<p>
+    <button type="button" id="btnReset">Reset</button>
+    <button type="button" id="btnRun" disabled="disable">Run</button>
+</p>
+<canvas id="worldCanvas" width="512" height="512" style="border: 1px solid #000000"></canvas>
+
+<!-- Pull in the virtual machine with the embedded evolved program -->
+<script src="program.js"></script>
+
+<script>
+    "use strict";
+
+    const WORLD_SIZE = 128;
+    const RATIO = 512/WORLD_SIZE; // 512 = canvas size in pixels
+
+    const START_COLOR = "#0000FF";
+    const TARGET_COLOR = "#BB3300";
+    const TRACK_COLOR = "#AAAAAA";
+
+    let running = false;
+    let stepDelay = 0;
+    let prevStep;
+
+    let canvas = document.getElementById("worldCanvas");
+    let ctx = canvas.getContext("2d");
+
+    let agent = null;
+    let target = null;
+    let vm = null;
+
+    let inputHandler = function(inputNum) {
+        switch (inputNum) {
+            case 0: return agent.x;
+            case 1: return agent.y;
+            case 2: return target.x;
+            case 3: return target.y;
+        }
+    };
+    let outputHandler = function(outputNum, outputVal) {
+        switch (outputNum) {
+            case 0: if (agent.x < WORLD_SIZE - 1) agent.x += 1; break;
+            case 1: if (agent.x > 0) agent.x -= 1; break;
+            case 2: if (agent.y < WORLD_SIZE - 1) agent.y += 1; break;
+            case 3: if (agent.y > 0) agent.y -= 1; break;
+        }
+    };
+
+    let btnReset = document.getElementById("btnReset");
+    let btnRun = document.getElementById("btnRun");
+
+    btnReset.onclick = ev => {
+        running = false;
+        agent = null;
+        target = null;
+        vm = null;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        btnRun.disabled = true;
+    };
+
+    btnRun.onclick = ev => {
+        if (running) return;
+
+        btnRun.disabled = true;
+        running = true;
+        vm = new VM(inputHandler, outputHandler);
+        requestAnimationFrame(frameCallback);
+    };
+
+    /** Marks a world location (a grid square). */
+    function markLocation(loc, color) {
+        ctx.fillStyle = color;
+        const rectSize = RATIO;
+        ctx.fillRect(loc.x * RATIO, loc.y * RATIO, rectSize, rectSize);
+    }
+
+    function frameCallback(timestamp) {
+        if (!running) {
+            return;
+        }
+        if (prevStep == undefined) {
+            prevStep = timestamp;
+        }
+        if (timestamp - prevStep >= stepDelay) {
+            const STEPS_PER_FRAME = 5;
+
+            for (let i = 0; i < STEPS_PER_FRAME; i++) {
+                const old_x = agent.x;
+                const old_y = agent.y;
+                // run the program until the agent moves
+                vm.runUntil(() => {
+                    return agent.x != old_x || agent.y != old_y;
+                });
+
+                markLocation(agent, TRACK_COLOR);
+
+                if (agent.x == target.x && agent.y == target.y) {
+                    running = false;
+                    markLocation(target, TARGET_COLOR);
+                    console.log("Agent has reached the target.");
+                    break;
+                }
+            }
+
+            prevStep = timestamp;
+        }
+        requestAnimationFrame(frameCallback);
+    }
+
+    canvas.onclick = function(e) {
+        if (!running) {
+            let loc = windowToLogical(canvas, e.clientX, e.clientY);
+            if (agent == null) {
+                agent = {
+                    x: loc.x,
+                    y: loc.y
+                };
+                markLocation(agent, START_COLOR);
+            } else if (target == null) {
+                target = {
+                    x: loc.x,
+                    y: loc.y
+                };
+                markLocation(target, TARGET_COLOR);
+                btnRun.disabled = false;
+            }
+        } else {
+            console.log("Program is still running.", e);
+        }
+    }
+
+    /** Converts mouse click coordinates to logical world coordinates. */
+    function windowToLogical(canvas, x, y) {
+        let bbox = canvas.getBoundingClientRect();
+        let result = { x: Math.round((x - bbox.left * (canvas.width  / bbox.width)) / RATIO),
+                       y: Math.round((y - bbox.top  * (canvas.height / bbox.height)) / RATIO) };
+        if (result.x >= WORLD_SIZE) result.x = WORLD_SIZE-1;
+        if (result.y >= WORLD_SIZE) result.y = WORLD_SIZE-1;
+
+        return result;
+    }
+</script>
+
+</body>
+</html>
